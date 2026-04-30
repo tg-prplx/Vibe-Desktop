@@ -49,6 +49,10 @@ struct ChatMessage: Identifiable {
     var content: String
     var status: String?
     var kind: String?
+
+    var listID: String {
+        "\(role.rawValue):\(id)"
+    }
 }
 
 struct ProjectFile: Identifiable {
@@ -1115,6 +1119,19 @@ final class AppModel: ObservableObject {
             ?? update["rawInput"] as? String
             ?? ""
         let display = toolStartDisplay(title: title, raw: raw)
+        if let index = messages.firstIndex(where: { $0.id == id && $0.role == .tool }) {
+            messages[index].title = title
+            messages[index].kind = kind
+            messages[index].status = "running"
+            if !display.isEmpty {
+                messages[index].content = display
+            }
+            messages[index].timestamp = Date()
+            activityText = "Running \(title)"
+            appendLog(title, level: .info)
+            updateFiles(from: update)
+            return
+        }
         messages.append(ChatMessage(
             id: id,
             role: .tool,
@@ -1138,15 +1155,16 @@ final class AppModel: ObservableObject {
             ?? update["rawOutput"] as? String
             ?? textContent(from: update)
         let display = toolUpdateDisplay(status: status, raw: raw)
-        if let index = messages.firstIndex(where: { $0.id == id }) {
+        if let index = messages.firstIndex(where: { $0.id == id && $0.role == .tool }) {
             messages[index].status = status
             if !display.isEmpty {
                 messages[index].content = display
             }
+            messages[index].timestamp = Date()
         } else {
             messages.append(ChatMessage(
                 id: id,
-                role: status == "failed" ? .error : .tool,
+                role: .tool,
                 title: update["title"] as? String ?? "Tool update",
                 timestamp: Date(),
                 content: display,

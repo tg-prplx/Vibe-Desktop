@@ -1182,33 +1182,33 @@ struct MainChatView: View {
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 10) {
                         if model.messages.isEmpty {
                             EmptyChatView()
                         }
-                        ForEach(model.messages) { message in
+                        ForEach(model.messages, id: \.listID) { message in
                             TimelineMessage(message: message, model: model)
-                                .id(message.id)
-                                .transition(.asymmetric(
-                                    insertion: .opacity.combined(with: .move(edge: .bottom)),
-                                    removal: .opacity
-                                ))
+                                .id(message.listID)
                         }
                         if let permission = model.pendingPermission {
                             PermissionCard(permission: permission, model: model)
-                                .transition(.scale(scale: 0.98).combined(with: .opacity))
+                                .id("permission-\(permission.id)")
                         }
+                        Color.clear
+                            .frame(height: 1)
+                            .id("chat-bottom")
                     }
                     .padding(.horizontal, 28)
-                    .padding(.bottom, 18)
-                    .animation(.easeOut(duration: 0.16), value: model.messages.count)
-                    .animation(.easeOut(duration: 0.16), value: model.pendingPermission?.id)
+                    .padding(.bottom, 12)
                 }
                 .onChange(of: model.messages.count) { _ in
-                    if let last = model.messages.last {
-                        withAnimation(.easeOut(duration: 0.18)) {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        proxy.scrollTo("chat-bottom", anchor: .bottom)
+                    }
+                }
+                .onChange(of: model.pendingPermission?.id) { _ in
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        proxy.scrollTo("chat-bottom", anchor: .bottom)
                     }
                 }
             }
