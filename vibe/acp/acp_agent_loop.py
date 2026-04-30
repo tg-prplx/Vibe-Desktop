@@ -8,9 +8,11 @@ import logging
 import os
 from pathlib import Path
 import sys
+import tomllib
 from typing import Any, cast, override
 from uuid import uuid4
 
+from dotenv import dotenv_values
 from acp import (
     PROTOCOL_VERSION,
     Agent as AcpAgent,
@@ -114,8 +116,10 @@ from vibe.core.config import (
     VibeConfig,
     load_dotenv_values,
 )
+from vibe.core.config.harness_files import get_harness_files_manager
 from vibe.core.data_retention import DATA_RETENTION_MESSAGE
 from vibe.core.hooks.config import load_hooks_from_fs
+from vibe.core.paths import GLOBAL_ENV_FILE, LOG_FILE, SESSION_LOG_DIR, VIBE_HOME
 from vibe.core.proxy_setup import (
     ProxySetupError,
     parse_proxy_command,
@@ -168,6 +172,31 @@ class TelemetrySendNotification(BaseModel):
 
 
 _EVENT_DISPATCHERS: dict[str, Callable[[TelemetryClient, dict[str, Any]], None]] = {}
+
+_MAC_CONFIG_SCALARS: tuple[tuple[str, str], ...] = (
+    ("active_model", "Active model alias"),
+    ("vim_keybindings", "Use Vim keybindings in the CLI"),
+    ("autocopy_to_clipboard", "Copy assistant responses automatically"),
+    ("file_watcher_for_autocomplete", "Enable autocomplete file watcher"),
+    ("displayed_workdir", "Override displayed working directory"),
+    ("context_warnings", "Show context warning messages"),
+    ("voice_mode_enabled", "Enable voice mode"),
+    ("narrator_enabled", "Enable narrator"),
+    ("active_transcribe_model", "Active speech-to-text model"),
+    ("active_tts_model", "Active text-to-speech model"),
+    ("bypass_tool_permissions", "Bypass tool permission prompts"),
+    ("enable_telemetry", "Send telemetry"),
+    ("system_prompt_id", "System prompt id"),
+    ("include_commit_signature", "Include commit signature in context"),
+    ("include_model_info", "Include model information in context"),
+    ("include_project_context", "Include project context"),
+    ("include_prompt_detail", "Include prompt detail"),
+    ("enable_update_checks", "Check for updates"),
+    ("enable_auto_update", "Enable automatic updates"),
+    ("enable_notifications", "Enable desktop notifications"),
+    ("api_timeout", "API request timeout in seconds"),
+    ("auto_compact_threshold", "Global context auto-compact threshold"),
+)
 
 
 def _resolved_user_message_id(client_message_id: str | None) -> str:
@@ -1010,7 +1039,19 @@ class VibeAcpAgentLoop(AcpAgent):
 
     @override
     async def ext_method(self, method: str, params: dict) -> dict:
-        raise NotImplementedMethodError("ext_method")
+        match method:
+            case "vibe/config/inspect":
+                return self._mac_config_snapshot(params.get("session_id"))
+            case "vibe/config/set":
+                return await self._mac_config_set(params)
+            case "vibe/config/save_raw":
+                return await self._mac_config_save_raw(params)
+            case "vibe/config/reload":
+                return await self._mac_config_reload(params)
+            case "vibe/env/set":
+                return self._mac_env_set(params)
+            case _:
+                raise NotImplementedMethodError(method)
 
     @override
     async def ext_notification(self, method: str, params: dict) -> None:
@@ -1042,6 +1083,201 @@ class VibeAcpAgentLoop(AcpAgent):
             return
 
         dispatcher(session.agent_loop.telemetry_client, notification.properties)
+
+    def _mac_session_from_params(self, session_id: object) -> AcpSessionLoop | None:
+        if isinstance(session_id, str) and session_id:
+            return self.sessions.get(session_id)
+        if len(self.sessions) == 1:
+            return next(iter(self.sessions.values()))
+        return None
+
+    def _mac_effective_config(self, session_id: object = None) -> VibeConfig:
+        if session := self._mac_session_from_params(session_id):
+            return session.agent_loop.config
+        return VibeConfig.load(disabled_tools=["ask_user_question"])
+
+    def _mac_config_snapshot(self, session_id: object = None) -> dict[str, Any]:
+        config = self._mac_effective_config(session_id)
+        mgr = get_harness_files_manager()
+        config_file = mgr.config_file or mgr.user_config_file
+        env_file = GLOBAL_ENV_FILE.path
+
+        try:
+            raw_toml = config_file.read_text(encoding="utf-8")
+        except OSError:
+            raw_toml = ""
+
+        persisted = VibeConfig.get_persisted_config()
+        scalars: list[dict[str, Any]] = []
+        for key, description in _MAC_CONFIG_SCALARS:
+            value = getattr(config, key, None)
+            scalars.append(
+                {
+                    "key": key,
+                    "description": description,
+                    "value": value,
+                    "value_type": type(value).__name__,
+                    "persisted": key in persisted,
+                }
+            )
+
+        active_provider = ""
+        try:
+            active_provider = config.get_active_provider().name
+        except ValueError:
+            pass
+
+        env_values = dotenv_values(env_file) if env_file.exists() else {}
+        env_vars = [
+            {
+                "key": key,
+                "set": bool(value),
+                "masked_value": self._mask_secret(str(value or "")),
+            }
+            for key, value in sorted(env_values.items())
+        ]
+
+        return {
+            "vibe_home": str(VIBE_HOME.path),
+            "config_path": str(config_file),
+            "env_path": str(env_file),
+            "log_path": str(LOG_FILE.path),
+            "session_log_dir": str(SESSION_LOG_DIR.path),
+            "raw_toml": raw_toml,
+            "active_provider": active_provider,
+            "scalars": scalars,
+            "providers": [
+                provider.model_dump(mode="json", exclude_none=True)
+                for provider in config.providers
+            ],
+            "models": [
+                {
+                    **model.model_dump(mode="json", exclude_none=True),
+                    "active": model.alias == config.active_model,
+                }
+                for model in config.models
+            ],
+            "mcp_servers": [
+                server.model_dump(mode="json", exclude_none=True)
+                for server in config.mcp_servers
+            ],
+            "connectors": [
+                connector.model_dump(mode="json", exclude_none=True)
+                for connector in config.connectors
+            ],
+            "paths": {
+                "tool_paths": [str(path) for path in config.tool_paths],
+                "agent_paths": [str(path) for path in config.agent_paths],
+                "skill_paths": [str(path) for path in config.skill_paths],
+            },
+            "filters": {
+                "enabled_tools": config.enabled_tools,
+                "disabled_tools": config.disabled_tools,
+                "enabled_agents": config.enabled_agents,
+                "disabled_agents": config.disabled_agents,
+                "enabled_skills": config.enabled_skills,
+                "disabled_skills": config.disabled_skills,
+            },
+            "env_vars": env_vars,
+        }
+
+    async def _mac_reload_if_possible(self, session_id: object) -> None:
+        session = self._mac_session_from_params(session_id)
+        if session is None:
+            return
+        await self._reload_session_config(session)
+        await session.command_registry.notify_changed()
+
+    async def _mac_config_set(self, params: dict[str, Any]) -> dict[str, Any]:
+        key = params.get("key")
+        if not isinstance(key, str) or key not in VibeConfig.model_fields:
+            raise InvalidRequestError(f"Unknown config key: {key}")
+
+        value = self._coerce_config_value(key, params.get("value"))
+        VibeConfig.save_updates({key: value})
+        await self._mac_reload_if_possible(params.get("session_id"))
+        return self._mac_config_snapshot(params.get("session_id"))
+
+    async def _mac_config_save_raw(self, params: dict[str, Any]) -> dict[str, Any]:
+        raw_toml = params.get("toml")
+        if not isinstance(raw_toml, str):
+            raise InvalidRequestError("Expected raw TOML string")
+        try:
+            parsed = tomllib.loads(raw_toml)
+        except tomllib.TOMLDecodeError as e:
+            raise InvalidRequestError(f"Invalid TOML: {e}") from e
+        try:
+            VibeConfig.dump_config(parsed)
+        except Exception as e:
+            raise InvalidRequestError(f"Invalid Vibe config: {e}") from e
+
+        await self._mac_reload_if_possible(params.get("session_id"))
+        return self._mac_config_snapshot(params.get("session_id"))
+
+    async def _mac_config_reload(self, params: dict[str, Any]) -> dict[str, Any]:
+        await self._mac_reload_if_possible(params.get("session_id"))
+        return self._mac_config_snapshot(params.get("session_id"))
+
+    def _mac_env_set(self, params: dict[str, Any]) -> dict[str, Any]:
+        key = params.get("key")
+        value = params.get("value", "")
+        if not isinstance(key, str) or not key:
+            raise InvalidRequestError("Environment key is required")
+        if not key.replace("_", "").isalnum() or not key[0].isalpha():
+            raise InvalidRequestError(f"Invalid environment key: {key}")
+        if not isinstance(value, str):
+            value = str(value)
+        self._write_env_var(key, value)
+        if value:
+            os.environ[key] = value
+        else:
+            os.environ.pop(key, None)
+        return self._mac_config_snapshot(params.get("session_id"))
+
+    def _coerce_config_value(self, key: str, value: Any) -> Any:
+        current = getattr(self._mac_effective_config(), key, None)
+        if isinstance(current, bool):
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                return value.lower() in {"1", "true", "yes", "on"}
+            return bool(value)
+        if isinstance(current, int) and not isinstance(current, bool):
+            return int(value)
+        if isinstance(current, float):
+            return float(value)
+        return "" if value is None else str(value)
+
+    def _write_env_var(self, key: str, value: str) -> None:
+        env_path = GLOBAL_ENV_FILE.path
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        lines = (
+            env_path.read_text(encoding="utf-8").splitlines()
+            if env_path.exists()
+            else []
+        )
+        prefix = f"{key}="
+        rendered = f"{key}={value}" if value else ""
+        replaced = False
+        next_lines: list[str] = []
+        for line in lines:
+            if line.startswith(prefix):
+                replaced = True
+                if rendered:
+                    next_lines.append(rendered)
+            else:
+                next_lines.append(line)
+        if not replaced and rendered:
+            next_lines.append(rendered)
+        env_path.write_text("\n".join(next_lines).rstrip() + "\n", encoding="utf-8")
+
+    @staticmethod
+    def _mask_secret(value: str) -> str:
+        if not value:
+            return ""
+        if len(value) <= 8:
+            return "****"
+        return f"{value[:3]}****{value[-3:]}"
 
     @override
     def on_connect(self, conn: Client) -> None:
@@ -1083,6 +1319,85 @@ class VibeAcpAgentLoop(AcpAgent):
                 lines.append(f"- `/{name}`: {info.description}")
 
         return await self._command_reply(session, "\n".join(lines), message_id)
+
+    async def _handle_config(
+        self, session: AcpSessionLoop, text_prompt: str, message_id: str
+    ) -> PromptResponse:
+        return await self._command_reply(
+            session,
+            "Use the native Vibe Config controls in the macOS Context tab to change mode, model, and thinking.",
+            message_id,
+        )
+
+    async def _handle_client_side_command(
+        self, session: AcpSessionLoop, text_prompt: str, message_id: str
+    ) -> PromptResponse:
+        return await self._command_reply(
+            session,
+            "This command is handled by the macOS client.",
+            message_id,
+        )
+
+    async def _handle_status(
+        self, session: AcpSessionLoop, text_prompt: str, message_id: str
+    ) -> PromptResponse:
+        stats = session.agent_loop.stats
+        profile = session.agent_loop.agent_profile
+        config = session.agent_loop.config
+        return await self._command_reply(
+            session,
+            "\n".join(
+                [
+                    "## Session Status",
+                    "",
+                    f"- Mode: `{profile.display_name}`",
+                    f"- Model: `{config.active_model}`",
+                    f"- Steps: `{stats.steps}`",
+                    f"- Context tokens: `{stats.context_tokens}`",
+                    f"- Session tokens: `{stats.session_total_llm_tokens}`",
+                    f"- Tool calls succeeded: `{stats.tool_calls_succeeded}`",
+                    f"- Tool calls failed: `{stats.tool_calls_failed}`",
+                    f"- Tool calls rejected: `{stats.tool_calls_rejected}`",
+                ]
+            ),
+            message_id,
+        )
+
+    async def _handle_resume(
+        self, session: AcpSessionLoop, text_prompt: str, message_id: str
+    ) -> PromptResponse:
+        return await self._command_reply(
+            session,
+            "Use `session/list` compatible clients to browse saved sessions. The macOS client can still send `/resume` as a normal command.",
+            message_id,
+        )
+
+    async def _handle_mcp(
+        self, session: AcpSessionLoop, text_prompt: str, message_id: str
+    ) -> PromptResponse:
+        return await self._command_reply(
+            session,
+            "MCP configuration is loaded from `~/.vibe/config.toml`. Use `/reload` after editing it.",
+            message_id,
+        )
+
+    async def _handle_voice(
+        self, session: AcpSessionLoop, text_prompt: str, message_id: str
+    ) -> PromptResponse:
+        return await self._command_reply(
+            session,
+            "Voice configuration is available in `~/.vibe/config.toml`.",
+            message_id,
+        )
+
+    async def _handle_rewind(
+        self, session: AcpSessionLoop, text_prompt: str, message_id: str
+    ) -> PromptResponse:
+        return await self._command_reply(
+            session,
+            "Rewind is a TUI-only interaction for now. Use `/compact` or start a new session from the macOS app.",
+            message_id,
+        )
 
     async def _handle_compact(
         self, session: AcpSessionLoop, text_prompt: str, message_id: str

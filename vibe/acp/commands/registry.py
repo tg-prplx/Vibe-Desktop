@@ -49,11 +49,51 @@ def _build_commands() -> dict[str, AcpCommand]:
             description="Show available commands and keyboard shortcuts",
             handler="_handle_help",
         ),
+        "config": AcpCommand(
+            name="config",
+            description="Edit config settings",
+            handler="_handle_config",
+        ),
+        "model": AcpCommand(
+            name="model",
+            description="Select active model",
+            handler="_handle_config",
+        ),
+        "thinking": AcpCommand(
+            name="thinking",
+            description="Select thinking level",
+            handler="_handle_config",
+        ),
         "compact": AcpCommand(
             name="compact",
             description="Compact conversation history by summarizing. Optionally pass instructions to guide the summary",
             handler="_handle_compact",
             input_hint="Optional instructions to guide the compaction summary",
+        ),
+        "clear": AcpCommand(
+            name="clear",
+            description="Clear conversation history",
+            handler="_handle_client_side_command",
+        ),
+        "copy": AcpCommand(
+            name="copy",
+            description="Copy the last agent message to the clipboard",
+            handler="_handle_client_side_command",
+        ),
+        "debug": AcpCommand(
+            name="debug",
+            description="Toggle debug console",
+            handler="_handle_client_side_command",
+        ),
+        "exit": AcpCommand(
+            name="exit",
+            description="Exit the application",
+            handler="_handle_client_side_command",
+        ),
+        "status": AcpCommand(
+            name="status",
+            description="Display agent statistics",
+            handler="_handle_status",
         ),
         "reload": AcpCommand(
             name="reload",
@@ -71,6 +111,27 @@ def _build_commands() -> dict[str, AcpCommand]:
             handler="_handle_proxy_setup",
             input_hint="KEY value to set, KEY to unset, or empty for help",
         ),
+        "resume": AcpCommand(
+            name="resume",
+            description="Browse and resume past sessions",
+            handler="_handle_resume",
+        ),
+        "continue": AcpCommand(
+            name="continue",
+            description="Resume the last or selected past session",
+            handler="_handle_resume",
+        ),
+        "mcp": AcpCommand(
+            name="mcp",
+            description="Display available MCP servers and connectors. Pass a name to list its tools",
+            handler="_handle_mcp",
+            input_hint="Optional server name",
+        ),
+        "voice": AcpCommand(
+            name="voice",
+            description="Configure voice settings",
+            handler="_handle_voice",
+        ),
         "leanstall": AcpCommand(
             name="leanstall",
             description="Install the Lean 4 agent (leanstral)",
@@ -85,5 +146,10 @@ def _build_commands() -> dict[str, AcpCommand]:
             name="data-retention",
             description="Show data retention information",
             handler="_handle_data_retention",
+        ),
+        "rewind": AcpCommand(
+            name="rewind",
+            description="Rewind to a previous message",
+            handler="_handle_rewind",
         ),
     }

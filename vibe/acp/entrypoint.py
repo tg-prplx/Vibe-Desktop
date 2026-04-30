@@ -76,7 +76,10 @@ def handle_debug_mode() -> None:
 
 def main() -> None:
     handle_debug_mode()
-    init_harness_files_manager("user", "project")
+    if os.environ.get("VIBE_CONFIG_SOURCE") == "user":
+        init_harness_files_manager("user")
+    else:
+        init_harness_files_manager("user", "project")
 
     from vibe.acp.acp_agent_loop import run_acp_server
     from vibe.core.config import VibeConfig, load_dotenv_values
