@@ -20,7 +20,7 @@ enum VibeTheme {
     static let red = NSColor(hex: 0xFF5F57)
     static let green = NSColor(hex: 0x55D187)
     static let yellow = NSColor(hex: 0xF5C35B)
-    static let blue = NSColor(hex: 0x8E8E8E)
+    static let blue = NSColor(hex: 0x4EA1FF)
     static let magenta = NSColor(hex: 0xB0B0B0)
     static let cyan = NSColor(hex: 0xB8B8B8)
     static let brightBlack = NSColor(hex: 0x707070)

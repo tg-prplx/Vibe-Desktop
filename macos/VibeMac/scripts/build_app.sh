@@ -85,8 +85,17 @@ cat > "${CONTENTS_DIR}/Info.plist" <<PLIST
   <string>13.0</string>
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.developer-tools</string>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsArbitraryLoads</key>
+    <true/>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Vibe Desktop connects to local LLM servers such as LM Studio, Ollama, and OpenAI-compatible endpoints on your local network.</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
 </dict>

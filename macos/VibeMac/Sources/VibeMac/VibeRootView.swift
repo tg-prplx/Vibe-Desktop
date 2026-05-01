@@ -2,22 +2,16 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+private let topBarHeight: CGFloat = 46
+
 struct VibeRootView: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
         HStack(spacing: 0) {
-            if model.leftSidebarCollapsed {
-                CollapsedSidebarView(model: model)
-                    .frame(width: 58)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-                DividerLine()
-            } else {
-                SidebarView(model: model)
-                    .frame(width: 250)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-                DividerLine()
-            }
+            SidebarContainerView(model: model)
+                .frame(width: model.leftSidebarCollapsed ? 58 : 250)
+                .clipped()
             CenterPane(model: model)
                 .frame(minWidth: 320)
                 .transition(.opacity)
@@ -39,8 +33,58 @@ struct VibeRootView: View {
         .font(.system(size: 14, weight: .regular))
         .animation(.easeInOut(duration: 0.18), value: model.leftSidebarCollapsed)
         .animation(.easeInOut(duration: 0.18), value: model.inspectorCollapsed)
-        .animation(.easeInOut(duration: 0.16), value: model.selectedSection)
         .frame(minWidth: 940, minHeight: 640)
+    }
+}
+
+struct SidebarContainerView: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            SidebarBackground(blurEnabled: model.configuration.blurEnabled)
+            if model.leftSidebarCollapsed {
+                CollapsedSidebarView(model: model)
+                    .transition(.opacity)
+            } else {
+                SidebarView(model: model)
+                    .transition(.opacity)
+            }
+        }
+    }
+}
+
+struct SidebarBackground: View {
+    let blurEnabled: Bool
+
+    var body: some View {
+        ZStack {
+            if blurEnabled {
+                VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
+            }
+            VibeTheme.swiftSidebar.opacity(blurEnabled ? 0.46 : 1)
+        }
+        .ignoresSafeArea()
+    }
+}
+
+struct VisualEffectBackground: NSViewRepresentable {
+    let material: NSVisualEffectView.Material
+    let blendingMode: NSVisualEffectView.BlendingMode
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.state = .active
+        view.material = material
+        view.blendingMode = blendingMode
+        view.wantsLayer = true
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.state = .active
+        view.material = material
+        view.blendingMode = blendingMode
     }
 }
 
@@ -48,6 +92,21 @@ struct CenterPane: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
+        ZStack {
+            MainChatView(model: model)
+                .opacity(model.selectedSection == .chats ? 1 : 0)
+                .allowsHitTesting(model.selectedSection == .chats)
+                .accessibilityHidden(model.selectedSection != .chats)
+
+            if model.selectedSection != .chats {
+                activeNonChatPane
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var activeNonChatPane: some View {
         switch model.selectedSection {
         case .commands:
             CommandsPane(model: model)
@@ -58,7 +117,7 @@ struct CenterPane: View {
         case .logs:
             LogsPane(model: model)
         case .chats:
-            MainChatView(model: model)
+            EmptyView()
         }
     }
 }
@@ -134,7 +193,7 @@ struct SidebarView: View {
             }
             .padding(14)
         }
-        .background(VibeTheme.swiftSidebar)
+        .background(Color.clear)
     }
 }
 
@@ -157,7 +216,7 @@ struct CollapsedSidebarView: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(model.selectedSection == section ? VibeTheme.swiftOrange : VibeTheme.swiftMuted)
                         .frame(width: 36, height: 36)
-                        .background(model.selectedSection == section ? VibeTheme.swiftSelection : .clear)
+                        .background(model.selectedSection == section ? VibeTheme.swiftSelection.opacity(0.58) : .clear)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
@@ -167,7 +226,7 @@ struct CollapsedSidebarView: View {
                 .padding(.bottom, 18)
         }
         .frame(maxWidth: .infinity)
-        .background(VibeTheme.swiftSidebar)
+        .background(Color.clear)
     }
 }
 
@@ -226,8 +285,8 @@ struct ChatManagerSidebar: View {
             }
         }
         .padding(10)
-        .background(VibeTheme.swiftPanel)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(VibeTheme.swiftBorder, lineWidth: 1))
+        .background(VibeTheme.swiftPanel.opacity(0.54))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(VibeTheme.swiftBorder.opacity(0.78), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .onAppear { model.listChatSessions() }
     }
@@ -260,7 +319,7 @@ struct ChatSessionRow: View {
             }
             .padding(.horizontal, 7)
             .padding(.vertical, 6)
-            .background(active ? VibeTheme.swiftSelection : .clear)
+            .background(active ? VibeTheme.swiftSelection.opacity(0.58) : .clear)
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .contentShape(Rectangle())
         }
@@ -642,6 +701,11 @@ struct HighlightedCodeEditor: NSViewRepresentable {
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.isContinuousSpellCheckingEnabled = false
+        textView.isGrammarCheckingEnabled = false
+        textView.isAutomaticLinkDetectionEnabled = false
+        textView.isAutomaticDataDetectionEnabled = false
         textView.allowsUndo = true
         textView.font = Coordinator.editorFont
         textView.textColor = VibeTheme.terminalForeground
@@ -1025,13 +1089,8 @@ struct ConfigRawSection: View {
 
     var body: some View {
         SettingsSection(title: "RAW CONFIG.TOML", subtitle: "Validated through VibeConfig before write.") {
-            TextEditor(text: $model.configRawText)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(VibeTheme.swiftForeground)
-                .scrollContentBackground(.hidden)
-                .padding(8)
+            HighlightedCodeEditor(text: $model.configRawText, fileKind: "toml")
                 .frame(minHeight: 260)
-                .background(VibeTheme.swiftTerminalBackground)
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(VibeTheme.swiftBorder, lineWidth: 1))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
         }
@@ -1182,16 +1241,19 @@ struct MainChatView: View {
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
+                    LazyVStack(alignment: .leading, spacing: 10) {
                         if model.messages.isEmpty {
                             EmptyChatView()
                         }
                         ForEach(model.messages, id: \.listID) { message in
-                            TimelineMessage(message: message, model: model)
+                            TimelineMessage(message: message) { path in
+                                model.openFileInEditor(path: path)
+                            }
+                            .equatable()
                                 .id(message.listID)
                         }
                         if let permission = model.pendingPermission {
-                            PermissionCard(permission: permission, model: model)
+                            PermissionTimelineItem(permission: permission, model: model)
                                 .id("permission-\(permission.id)")
                         }
                         Color.clear
@@ -1202,14 +1264,10 @@ struct MainChatView: View {
                     .padding(.bottom, 12)
                 }
                 .onChange(of: model.messages.count) { _ in
-                    withAnimation(.easeOut(duration: 0.12)) {
-                        proxy.scrollTo("chat-bottom", anchor: .bottom)
-                    }
+                    proxy.scrollTo("chat-bottom", anchor: .bottom)
                 }
                 .onChange(of: model.pendingPermission?.id) { _ in
-                    withAnimation(.easeOut(duration: 0.12)) {
-                        proxy.scrollTo("chat-bottom", anchor: .bottom)
-                    }
+                    proxy.scrollTo("chat-bottom", anchor: .bottom)
                 }
             }
 
@@ -1266,14 +1324,12 @@ struct TopBar: View {
             Text("v2.9.3")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(VibeTheme.swiftMuted)
-            Text("·")
-                .foregroundStyle(VibeTheme.swiftMuted)
             Text(model.activeModelID)
                 .font(.system(size: 13, weight: .medium, design: .monospaced))
                 .foregroundStyle(VibeTheme.swiftForeground)
             WindowDragRegion()
                 .frame(minWidth: 80, maxWidth: .infinity)
-                .frame(height: 58)
+                .frame(height: topBarHeight)
             Text("Run")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(VibeTheme.swiftMuted)
@@ -1286,7 +1342,19 @@ struct TopBar: View {
             }
         }
         .padding(.horizontal, 20)
-        .frame(height: 58, alignment: .center)
+        .frame(height: topBarHeight, alignment: .center)
+        .background {
+            GeometryReader { proxy in
+                ZStack {
+                    if model.configuration.blurEnabled {
+                        VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
+                    }
+                    VibeTheme.swiftSidebar.opacity(model.configuration.blurEnabled ? 0.46 : 1)
+                }
+                .frame(width: proxy.size.width + 2, height: proxy.size.height)
+                .offset(x: -2)
+            }
+        }
     }
 }
 
@@ -1338,20 +1406,221 @@ struct MarkdownText: View {
     var color: Color = VibeTheme.swiftForeground
 
     var body: some View {
-        Text(markdown)
-            .font(.system(size: fontSize, design: usesMonospacedLayout ? .monospaced : .default))
-            .foregroundStyle(color)
-            .textSelection(.enabled)
-            .lineSpacing(3)
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(blocks) { block in
+                switch block.kind {
+                case .blank:
+                    Color.clear
+                        .frame(height: fontSize * 0.58)
+                case .line:
+                    MarkdownInlineText(block.text, fontSize: fontSize, color: color, monospaced: usesMonospacedLayout)
+                        .padding(.vertical, 1)
+                case let .heading(level):
+                    MarkdownInlineText(block.text, fontSize: headingSize(level), color: color, weight: .bold)
+                        .padding(.top, level <= 2 ? 9 : 5)
+                        .padding(.bottom, 3)
+                case .quote:
+                    MarkdownInlineText(block.text, fontSize: fontSize, color: VibeTheme.swiftMuted)
+                        .padding(.leading, 10)
+                        .padding(.vertical, 4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .overlay(alignment: .leading) {
+                            Rectangle()
+                                .fill(VibeTheme.swiftBorder)
+                                .frame(width: 3)
+                        }
+                case .unorderedList:
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("•")
+                            .font(.system(size: fontSize, weight: .bold))
+                            .foregroundStyle(color)
+                        MarkdownInlineText(block.text, fontSize: fontSize, color: color)
+                    }
+                    .padding(.vertical, 1)
+                case let .orderedList(number):
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("\(number).")
+                            .font(.system(size: fontSize, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(VibeTheme.swiftMuted)
+                            .frame(minWidth: 22, alignment: .trailing)
+                        MarkdownInlineText(block.text, fontSize: fontSize, color: color)
+                    }
+                    .padding(.vertical, 1)
+                case let .table(table):
+                    MarkdownTableView(table: table, fontSize: max(12, fontSize - 1), color: color)
+                        .padding(.vertical, 6)
+                case .rule:
+                    Rectangle()
+                        .fill(VibeTheme.swiftBorder)
+                        .frame(height: 1)
+                        .padding(.vertical, 8)
+                case .code:
+                    Text(block.text.isEmpty ? " " : block.text)
+                        .font(.system(size: fontSize, design: usesMonospacedLayout ? .monospaced : .default))
+                        .foregroundStyle(color)
+                        .textSelection(.enabled)
+                        .lineSpacing(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .modifier(CodeBlockStyle())
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var markdown: AttributedString {
-        (try? AttributedString(
-            markdown: content,
-            options: AttributedString.MarkdownParsingOptions(
-                interpretedSyntax: .inlineOnlyPreservingWhitespace
-            )
-        )) ?? AttributedString(content)
+    private var blocks: [MarkdownBlock] {
+        let sourceLines = content
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+
+        var result: [MarkdownBlock] = []
+        var codeLines: [String] = []
+        var isInsideCodeFence = false
+        var index = 0
+
+        func appendCodeBlock() {
+            result.append(MarkdownBlock(index: result.count, kind: .code, text: codeLines.joined(separator: "\n")))
+            codeLines.removeAll(keepingCapacity: true)
+        }
+
+        while index < sourceLines.count {
+            let line = sourceLines[index]
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                if isInsideCodeFence {
+                    appendCodeBlock()
+                    isInsideCodeFence = false
+                } else {
+                    isInsideCodeFence = true
+                }
+                index += 1
+                continue
+            }
+
+            if isInsideCodeFence {
+                codeLines.append(line)
+                index += 1
+                continue
+            }
+
+            if let table = parseTable(from: sourceLines, start: index) {
+                result.append(MarkdownBlock(index: result.count, kind: .table(table.table), text: ""))
+                index = table.nextIndex
+                continue
+            }
+
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty {
+                result.append(MarkdownBlock(index: result.count, kind: .blank, text: ""))
+            } else if let heading = parseHeading(trimmed) {
+                result.append(MarkdownBlock(index: result.count, kind: .heading(level: heading.level), text: heading.text))
+            } else if isHorizontalRule(trimmed) {
+                result.append(MarkdownBlock(index: result.count, kind: .rule, text: ""))
+            } else if trimmed.hasPrefix(">") {
+                let text = String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces)
+                result.append(MarkdownBlock(index: result.count, kind: .quote, text: text))
+            } else if let text = parseUnorderedList(trimmed) {
+                result.append(MarkdownBlock(index: result.count, kind: .unorderedList, text: text))
+            } else if let item = parseOrderedList(trimmed) {
+                result.append(MarkdownBlock(index: result.count, kind: .orderedList(number: item.number), text: item.text))
+            } else {
+                result.append(MarkdownBlock(index: result.count, kind: .line, text: line))
+            }
+            index += 1
+        }
+
+        if isInsideCodeFence || !codeLines.isEmpty {
+            appendCodeBlock()
+        }
+
+        if result.isEmpty {
+            return [MarkdownBlock(index: 0, kind: .line, text: " ")]
+        }
+        return result
+    }
+
+    private func headingSize(_ level: Int) -> CGFloat {
+        switch level {
+        case 1: return fontSize + 7
+        case 2: return fontSize + 4
+        case 3: return fontSize + 2
+        default: return fontSize
+        }
+    }
+
+    private func parseHeading(_ line: String) -> (level: Int, text: String)? {
+        let hashes = line.prefix { $0 == "#" }.count
+        guard (1...6).contains(hashes),
+              line.dropFirst(hashes).first == " " else {
+            return nil
+        }
+        return (hashes, String(line.dropFirst(hashes + 1)))
+    }
+
+    private func parseUnorderedList(_ line: String) -> String? {
+        for marker in ["- ", "* ", "+ "] where line.hasPrefix(marker) {
+            return String(line.dropFirst(marker.count))
+        }
+        return nil
+    }
+
+    private func parseOrderedList(_ line: String) -> (number: Int, text: String)? {
+        guard let match = line.range(of: #"^\d+[\.)]\s+"#, options: .regularExpression) else { return nil }
+        let marker = String(line[match])
+        let number = Int(marker.prefix { $0.isNumber }) ?? 1
+        return (number, String(line[match.upperBound...]))
+    }
+
+    private func isHorizontalRule(_ line: String) -> Bool {
+        let compact = line.replacingOccurrences(of: " ", with: "")
+        return compact == "---" || compact == "***" || compact == "___"
+    }
+
+    private func parseTable(from lines: [String], start: Int) -> (table: MarkdownTable, nextIndex: Int)? {
+        guard start + 1 < lines.count,
+              lines[start].contains("|"),
+              lines[start + 1].contains("|") else {
+            return nil
+        }
+        let headers = splitTableRow(lines[start])
+        let separator = splitTableRow(lines[start + 1])
+        guard !headers.isEmpty,
+              separator.count >= headers.count,
+              separator.prefix(headers.count).allSatisfy(isTableSeparatorCell) else {
+            return nil
+        }
+
+        var rows: [[String]] = []
+        var cursor = start + 2
+        while cursor < lines.count {
+            let line = lines[cursor]
+            guard line.contains("|"), !line.trimmingCharacters(in: .whitespaces).isEmpty else { break }
+            rows.append(normalizedTableRow(splitTableRow(line), width: headers.count))
+            cursor += 1
+        }
+        return (MarkdownTable(headers: headers, rows: rows), cursor)
+    }
+
+    private func splitTableRow(_ line: String) -> [String] {
+        var trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("|") { trimmed.removeFirst() }
+        if trimmed.hasSuffix("|") { trimmed.removeLast() }
+        return trimmed
+            .split(separator: "|", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    private func normalizedTableRow(_ row: [String], width: Int) -> [String] {
+        if row.count >= width {
+            return Array(row.prefix(width))
+        }
+        return row + Array(repeating: "", count: width - row.count)
+    }
+
+    private func isTableSeparatorCell(_ cell: String) -> Bool {
+        let compact = cell.replacingOccurrences(of: " ", with: "")
+        guard compact.count >= 3 else { return false }
+        return compact.allSatisfy { $0 == "-" || $0 == ":" }
+            && compact.contains("-")
     }
 
     private var usesMonospacedLayout: Bool {
@@ -1363,9 +1632,141 @@ struct MarkdownText: View {
     }
 }
 
-struct TimelineMessage: View {
+private struct MarkdownBlock: Identifiable {
+    enum Kind {
+        case line
+        case blank
+        case code
+        case heading(level: Int)
+        case quote
+        case unorderedList
+        case orderedList(number: Int)
+        case table(MarkdownTable)
+        case rule
+    }
+
+    let index: Int
+    let kind: Kind
+    let text: String
+
+    var id: Int {
+        index
+    }
+}
+
+private struct MarkdownTable {
+    let headers: [String]
+    let rows: [[String]]
+}
+
+private struct MarkdownInlineText: View {
+    let text: String
+    let fontSize: CGFloat
+    let color: Color
+    let weight: Font.Weight
+    let monospaced: Bool
+
+    init(_ text: String, fontSize: CGFloat, color: Color, weight: Font.Weight = .regular, monospaced: Bool = false) {
+        self.text = text
+        self.fontSize = fontSize
+        self.color = color
+        self.weight = weight
+        self.monospaced = monospaced
+    }
+
+    var body: some View {
+        Text(markdown)
+            .font(.system(size: fontSize, weight: weight, design: monospaced ? .monospaced : .default))
+            .foregroundStyle(color)
+            .textSelection(.enabled)
+            .lineSpacing(3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var markdown: AttributedString {
+        (try? AttributedString(
+            markdown: text,
+            options: AttributedString.MarkdownParsingOptions(
+                interpretedSyntax: .inlineOnlyPreservingWhitespace
+            )
+        )) ?? AttributedString(text)
+    }
+}
+
+private struct MarkdownTableView: View {
+    let table: MarkdownTable
+    let fontSize: CGFloat
+    let color: Color
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 0) {
+                tableRow(table.headers, isHeader: true)
+                ForEach(Array(table.rows.enumerated()), id: \.offset) { _, row in
+                    tableRow(row, isHeader: false)
+                }
+            }
+            .background(VibeTheme.swiftPanel.opacity(0.8))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(VibeTheme.swiftBorder, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+        }
+    }
+
+    private func tableRow(_ row: [String], isHeader: Bool) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            ForEach(Array(row.enumerated()), id: \.offset) { index, cell in
+                MarkdownInlineText(
+                    cell.isEmpty ? " " : cell,
+                    fontSize: fontSize,
+                    color: isHeader ? VibeTheme.swiftForeground : color,
+                    weight: isHeader ? .bold : .regular
+                )
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .frame(width: columnWidth(for: index), alignment: .leading)
+                .background(isHeader ? VibeTheme.swiftSelection.opacity(0.72) : Color.clear)
+                .overlay(alignment: .trailing) {
+                    Rectangle()
+                        .fill(VibeTheme.swiftBorder)
+                        .frame(width: index == row.count - 1 ? 0 : 1)
+                }
+            }
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(VibeTheme.swiftBorder)
+                .frame(height: 1)
+        }
+    }
+
+    private func columnWidth(for index: Int) -> CGFloat {
+        let values = [table.headers[safe: index] ?? ""] + table.rows.map { $0[safe: index] ?? "" }
+        let longest = values.map(\.count).max() ?? 8
+        return min(max(CGFloat(longest) * 8.2 + 28, 110), 260)
+    }
+}
+
+private struct CodeBlockStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: 13, design: .monospaced))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(VibeTheme.swiftTerminalBackground)
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(VibeTheme.swiftBorder, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .padding(.vertical, 4)
+    }
+}
+
+struct TimelineMessage: View, Equatable {
     let message: ChatMessage
-    @ObservedObject var model: AppModel
+    let openFile: (String) -> Void
+
+    static func == (lhs: TimelineMessage, rhs: TimelineMessage) -> Bool {
+        lhs.message == rhs.message
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -1389,7 +1790,7 @@ struct TimelineMessage: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 } else {
                     if message.role == .tool {
-                        ToolCallCard(message: message, content: displayContent, model: model)
+                        ToolCallCard(message: message, content: displayContent, openFile: openFile)
                     } else {
                         HStack(spacing: 8) {
                             Text(stepTitle)
@@ -1438,8 +1839,19 @@ struct TimelineMessage: View {
         case .user: return VibeTheme.swiftOrange
         case .assistant: return VibeTheme.swiftOrange
         case .thought: return VibeTheme.swiftYellow
-        case .tool: return message.status == "failed" ? VibeTheme.swiftRed : VibeTheme.swiftGreen
+        case .tool: return toolMarkerColor
         case .error: return VibeTheme.swiftRed
+        }
+    }
+
+    private var toolMarkerColor: Color {
+        switch message.status {
+        case "completed":
+            return VibeTheme.swiftGreen
+        case "failed":
+            return VibeTheme.swiftRed
+        default:
+            return VibeTheme.swiftBlue
         }
     }
 
@@ -1524,7 +1936,7 @@ struct TimelineMessage: View {
 struct ToolCallCard: View {
     let message: ChatMessage
     let content: String
-    @ObservedObject var model: AppModel
+    let openFile: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1566,7 +1978,7 @@ struct ToolCallCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(fileLines, id: \.self) { path in
                         Button {
-                            model.openFileInEditor(path: path)
+                            openFile(path)
                         } label: {
                             HStack(alignment: .top, spacing: 8) {
                                 Image(systemName: "doc.text")
@@ -1596,8 +2008,8 @@ struct ToolCallCard: View {
 
             if isSearchReplace, let diff = searchReplaceDiff {
                 SearchReplaceDiffView(diff: diff)
-            } else if !detailText.isEmpty {
-                Text(detailText)
+            } else if !summaryText.isEmpty {
+                Text(summaryText)
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(VibeTheme.swiftForeground)
                     .lineLimit(10)
@@ -1630,21 +2042,25 @@ struct ToolCallCard: View {
     }
 
     private var fileLines: [String] {
-        var paths = lines.compactMap { line in
+        let explicitLines = content
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        var paths = explicitLines.compactMap { line in
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             let lower = trimmed.lowercased()
             if lower.hasPrefix("file: ") {
-                return String(trimmed.dropFirst("file: ".count))
+                return plausiblePath(String(trimmed.dropFirst("file: ".count)))
             }
             if lower.hasPrefix("path: ") {
-                return String(trimmed.dropFirst("path: ".count))
+                return plausiblePath(String(trimmed.dropFirst("path: ".count)))
             }
             return nil
         }
-        if let file = jsonPayload?["file"] as? String, !file.isEmpty {
+        if let file = plausiblePath(jsonPayload?["file"] as? String) {
             paths.insert(file, at: 0)
         }
-        if let path = jsonPayload?["path"] as? String, !path.isEmpty {
+        if let path = plausiblePath(jsonPayload?["path"] as? String) {
             paths.insert(path, at: 0)
         }
         return Array(NSOrderedSet(array: paths)) as? [String] ?? paths
@@ -1662,6 +2078,26 @@ struct ToolCallCard: View {
                     && lower != statusLabel.lowercased()
             }
             .joined(separator: "\n")
+    }
+
+    private var summaryText: String {
+        if let jsonPayload {
+            var summary: [String] = []
+            for key in ["command", "status", "blocks_applied", "lines_changed", "timeout"] {
+                if let value = jsonPayload[key], !(value is NSNull) {
+                    summary.append("\(key): \(value)")
+                }
+            }
+            if let warnings = jsonPayload["warnings"] as? [Any], !warnings.isEmpty {
+                summary.append("warnings: \(warnings)")
+            }
+            if let content = jsonPayload["content"] as? String, !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let lineCount = content.split(separator: "\n", omittingEmptySubsequences: false).count
+                summary.append("content: \(lineCount) line\(lineCount == 1 ? "" : "s")")
+            }
+            return summary.joined(separator: "\n")
+        }
+        return detailText
     }
 
     private var isSearchReplace: Bool {
@@ -1692,7 +2128,13 @@ struct ToolCallCard: View {
 
     private var jsonPayload: [String: Any]? {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("{"), let data = trimmed.data(using: .utf8) else { return nil }
+        guard let start = trimmed.firstIndex(of: "{"),
+              let end = trimmed.lastIndex(of: "}"),
+              start <= end else {
+            return nil
+        }
+        let jsonSlice = String(trimmed[start...end])
+        guard let data = jsonSlice.data(using: .utf8) else { return nil }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
@@ -1700,10 +2142,24 @@ struct ToolCallCard: View {
         if !fileLines.isEmpty {
             return "\(fileLines.count) file\(fileLines.count == 1 ? "" : "s") affected"
         }
-        if detailText.isEmpty {
+        if summaryText.isEmpty {
             return "Waiting for tool output"
         }
         return "Tool output available"
+    }
+
+    private func plausiblePath(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'`,.;:)("))
+        guard trimmed.hasPrefix("/")
+            || trimmed.hasPrefix("~/")
+            || trimmed.hasPrefix("./")
+            || trimmed.hasPrefix("../") else {
+            return nil
+        }
+        return trimmed
     }
 
     private var statusLabel: String {
@@ -1720,7 +2176,7 @@ struct ToolCallCard: View {
         switch message.status {
         case "completed": return VibeTheme.swiftGreen
         case "failed": return VibeTheme.swiftRed
-        default: return VibeTheme.swiftOrange
+        default: return VibeTheme.swiftBlue
         }
     }
 
@@ -1728,7 +2184,7 @@ struct ToolCallCard: View {
         switch message.status {
         case "failed": return VibeTheme.swiftRed
         case "completed": return VibeTheme.swiftBorder
-        default: return VibeTheme.swiftOrange.opacity(0.55)
+        default: return VibeTheme.swiftBlue.opacity(0.55)
         }
     }
 
@@ -1809,36 +2265,118 @@ struct SearchReplaceDiffView: View {
     }
 }
 
+struct PermissionTimelineItem: View {
+    let permission: PermissionRequest
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(spacing: 0) {
+                Circle()
+                    .fill(VibeTheme.swiftOrange)
+                    .frame(width: 10, height: 10)
+                    .overlay(Circle().stroke(VibeTheme.swiftWorkspace, lineWidth: 2))
+                Rectangle()
+                    .fill(VibeTheme.swiftBorder)
+                    .frame(width: 1, height: 18)
+            }
+            .frame(width: 20)
+            .padding(.top, 10)
+
+            PermissionCard(permission: permission, model: model)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 2)
+    }
+}
+
 struct PermissionCard: View {
     let permission: PermissionRequest
     @ObservedObject var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Image(systemName: "exclamationmark.shield")
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.shield.fill")
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(VibeTheme.swiftYellow)
-                Text(permission.title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 24, height: 24)
+                    .background(VibeTheme.swiftYellow.opacity(0.14))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(permission.title)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(VibeTheme.swiftForeground)
+                    Text("Vibe needs your approval before running this tool")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(VibeTheme.swiftMuted)
+                }
+
+                Spacer()
+
+                Text("Confirm")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(VibeTheme.swiftYellow)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(VibeTheme.swiftYellow.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+
+            if !cleanDetail.isEmpty {
+                Text(cleanDetail)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(VibeTheme.swiftForeground)
+                    .textSelection(.enabled)
+                    .lineLimit(8)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(VibeTheme.swiftTerminalBackground)
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(VibeTheme.swiftBorder, lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 7))
+            }
+
+            HStack(spacing: 8) {
+                ForEach(permission.options) { option in
+                    Button {
+                        model.approvePendingPermission(optionID: option.id)
+                    } label: {
+                        Text(option.name)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(buttonForeground(option))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(buttonBackground(option))
+                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                    }
+                    .buttonStyle(.plain)
+                }
                 Spacer()
             }
-            Text(permission.detail)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(VibeTheme.swiftMuted)
-                .lineLimit(4)
-            HStack {
-                ForEach(permission.options) { option in
-                    Button(option.name) {
-                        model.approvePendingPermission(optionID: option.id)
-                    }
-                }
-            }
-            .buttonStyle(.bordered)
         }
         .padding(12)
         .background(VibeTheme.swiftWarningSurface)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(VibeTheme.swiftYellow, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(VibeTheme.swiftYellow.opacity(0.8), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var cleanDetail: String {
+        let detail = permission.detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        if detail.contains("<__NSArray") || detail.contains("NS") {
+            return ""
+        }
+        return detail
+    }
+
+    private func buttonForeground(_ option: PermissionRequest.Option) -> Color {
+        option.id.lowercased().contains("reject") ? VibeTheme.swiftRed : VibeTheme.swiftForeground
+    }
+
+    private func buttonBackground(_ option: PermissionRequest.Option) -> Color {
+        option.id.lowercased().contains("reject")
+            ? VibeTheme.swiftRed.opacity(0.16)
+            : VibeTheme.swiftPanelElevated
     }
 }
 
@@ -1913,7 +2451,7 @@ struct CommandInlineSuggest: View {
 
 struct CommandInputField: View {
     @ObservedObject var model: AppModel
-    @State private var prefixWidth: CGFloat = 0
+    @State private var inputHeight: CGFloat = 22
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -1921,23 +2459,20 @@ struct CommandInputField: View {
                 Text(model.inlineCommandCompletionTail)
                     .font(inputFont)
                     .foregroundStyle(VibeTheme.swiftMuted.opacity(0.45))
-                    .offset(x: prefixWidth)
+                    .offset(x: completionPrefixWidth)
                     .allowsHitTesting(false)
                     .transition(.opacity)
             }
 
-            TextField(model.status == "Running" ? "Queue another message..." : "Ask Vibe anything...", text: $model.input, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(inputFont)
-                .lineLimit(1...5)
-                .onSubmit { model.submitComposer() }
-                .background(
-                    Text(model.input.trimmingCharacters(in: .whitespacesAndNewlines))
-                        .font(inputFont)
-                        .fixedSize()
-                        .hidden()
-                        .background(WidthReader(width: $prefixWidth))
-                )
+            PromptInputTextView(
+                text: $model.input,
+                measuredHeight: $inputHeight,
+                placeholder: model.status == "Running" ? "Queue another message..." : "Ask Vibe anything...",
+                usesMonospacedFont: model.input.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/")
+            ) {
+                model.submitComposer()
+            }
+            .frame(height: min(max(inputHeight, 22), 108))
         }
     }
 
@@ -1946,17 +2481,171 @@ struct CommandInputField: View {
             ? .system(size: 15, design: .monospaced)
             : .system(size: 15)
     }
+
+    private var completionPrefixWidth: CGFloat {
+        let trimmed = model.input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let font = trimmed.hasPrefix("/")
+            ? NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
+            : NSFont.systemFont(ofSize: 15)
+        return (trimmed as NSString).size(withAttributes: [.font: font]).width
+    }
 }
 
-struct WidthReader: View {
-    @Binding var width: CGFloat
+struct PromptInputTextView: NSViewRepresentable {
+    @Binding var text: String
+    @Binding var measuredHeight: CGFloat
+    let placeholder: String
+    let usesMonospacedFont: Bool
+    let onSubmit: () -> Void
 
-    var body: some View {
-        GeometryReader { proxy in
-            Color.clear
-                .onAppear { width = proxy.size.width }
-                .onChange(of: proxy.size.width) { width = $0 }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+
+        let textView = PromptNSTextView()
+        textView.delegate = context.coordinator
+        textView.onSubmit = onSubmit
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.allowsUndo = true
+        textView.drawsBackground = false
+        textView.textContainerInset = NSSize(width: 0, height: 2)
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.string = text
+        textView.textColor = VibeTheme.terminalForeground
+        textView.insertionPointColor = VibeTheme.terminalForeground
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.isContinuousSpellCheckingEnabled = false
+        textView.isGrammarCheckingEnabled = false
+        textView.isAutomaticLinkDetectionEnabled = false
+        textView.isAutomaticDataDetectionEnabled = false
+        applyFont(to: textView)
+
+        scrollView.documentView = textView
+        context.coordinator.textView = textView
+        context.coordinator.updatePlaceholder()
+        context.coordinator.updateHeight()
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.parent = self
+        guard let textView = scrollView.documentView as? PromptNSTextView else { return }
+        textView.onSubmit = onSubmit
+        applyFont(to: textView)
+        if textView.string != text {
+            let selectedRanges = textView.selectedRanges
+            textView.string = text
+            textView.selectedRanges = clampedRanges(selectedRanges, length: (text as NSString).length)
         }
+        context.coordinator.updatePlaceholder()
+        context.coordinator.updateHeight()
+    }
+
+    private func applyFont(to textView: NSTextView) {
+        textView.font = usesMonospacedFont
+            ? NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
+            : NSFont.systemFont(ofSize: 15)
+    }
+
+    private func clampedRanges(_ ranges: [NSValue], length: Int) -> [NSValue] {
+        ranges.map { value in
+            let range = value.rangeValue
+            let location = min(range.location, length)
+            let maxLength = max(0, length - location)
+            return NSValue(range: NSRange(location: location, length: min(range.length, maxLength)))
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: PromptInputTextView
+        weak var textView: PromptNSTextView?
+
+        init(_ parent: PromptInputTextView) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? PromptNSTextView else { return }
+            parent.text = textView.string
+            updatePlaceholder()
+            updateHeight()
+        }
+
+        func updatePlaceholder() {
+            guard let textView else { return }
+            textView.placeholder = parent.placeholder
+            textView.needsDisplay = true
+        }
+
+        func updateHeight() {
+            guard let textView,
+                  let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer else {
+                return
+            }
+            layoutManager.ensureLayout(for: textContainer)
+            let usedRect = layoutManager.usedRect(for: textContainer)
+            let height = ceil(usedRect.height + textView.textContainerInset.height * 2 + 4)
+            if abs(parent.measuredHeight - height) > 1 {
+                DispatchQueue.main.async {
+                    self.parent.measuredHeight = height
+                }
+            }
+        }
+    }
+}
+
+final class PromptNSTextView: NSTextView {
+    var placeholder = ""
+    var onSubmit: (() -> Void)?
+
+    override var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let isReturn = event.keyCode == 36 || event.keyCode == 76
+        let wantsNewline = event.modifierFlags.contains(.shift)
+        if isReturn && !wantsNewline {
+            onSubmit?()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard string.isEmpty, !placeholder.isEmpty else { return }
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font ?? NSFont.systemFont(ofSize: 15),
+            .foregroundColor: VibeTheme.mutedText,
+        ]
+        placeholder.draw(
+            at: NSPoint(x: textContainerInset.width, y: textContainerInset.height + 1),
+            withAttributes: attributes
+        )
+    }
+}
+
+private extension Collection {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
 
@@ -2542,13 +3231,13 @@ struct SidebarRow: View {
                         .foregroundStyle(VibeTheme.swiftMuted)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
-                        .background(VibeTheme.swiftBadge)
+                        .background(VibeTheme.swiftBadge.opacity(0.58))
                         .clipShape(Capsule())
                 }
             }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
-                    .background(selected ? VibeTheme.swiftSelection : .clear)
+                    .background(selected ? VibeTheme.swiftSelection.opacity(0.58) : .clear)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .contentShape(Rectangle())
             }
@@ -2570,8 +3259,8 @@ struct SidebarCard<Content: View>: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(VibeTheme.swiftPanel)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(VibeTheme.swiftBorder, lineWidth: 1))
+        .background(VibeTheme.swiftPanel.opacity(0.54))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(VibeTheme.swiftBorder.opacity(0.78), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .padding(.horizontal, 12)
     }
@@ -2606,8 +3295,8 @@ struct IconButton: View {
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(isHovering ? VibeTheme.swiftForeground : VibeTheme.swiftMuted)
                 .frame(width: 34, height: 34)
-                .background(isHovering ? VibeTheme.swiftSelection : VibeTheme.swiftPanelElevated)
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(isHovering ? VibeTheme.swiftMuted : VibeTheme.swiftBorder, lineWidth: 1))
+                .background(isHovering ? VibeTheme.swiftSelection.opacity(0.66) : VibeTheme.swiftPanelElevated.opacity(0.54))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke((isHovering ? VibeTheme.swiftMuted : VibeTheme.swiftBorder).opacity(0.78), lineWidth: 1))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .scaleEffect(isHovering ? 1.04 : 1.0)
         }

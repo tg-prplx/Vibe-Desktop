@@ -131,6 +131,23 @@ final class ACPClient {
             "sessionId": sessionID,
             "configId": optionID,
             "value": value,
+            "type": "select",
+        ])
+    }
+
+    func setSessionMode(_ modeID: String) {
+        guard let sessionID else { return }
+        send(method: "session/set_mode", params: [
+            "sessionId": sessionID,
+            "modeId": modeID,
+        ])
+    }
+
+    func setSessionModel(_ modelID: String) {
+        guard let sessionID else { return }
+        send(method: "session/set_model", params: [
+            "sessionId": sessionID,
+            "modelId": modelID,
         ])
     }
 
@@ -189,6 +206,7 @@ final class ACPClient {
             "outcome": [
                 "outcome": "selected",
                 "option_id": optionID,
+                "optionId": optionID,
             ]
         ])
     }

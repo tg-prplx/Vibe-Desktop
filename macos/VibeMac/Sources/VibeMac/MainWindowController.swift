@@ -22,7 +22,6 @@ final class VibeHostingView<Content: View>: NSHostingView<Content> {
 
 final class MainWindowController: NSWindowController, NSWindowDelegate {
     private let chromeHeight: CGFloat = 58
-    private let trafficLightBackingIdentifier = NSUserInterfaceItemIdentifier("VibeTrafficLightBacking")
     private let model: AppModel
 
     init(configuration: CLIConfiguration) {
@@ -147,11 +146,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         guard buttons.count == 3, let superview = buttons.first?.superview else { return }
         superview.layoutSubtreeIfNeeded()
 
-        let backing = trafficLightBacking(in: superview, below: buttons[0])
-        let backingWidth: CGFloat = 72
-        let backingHeight: CGFloat = chromeHeight + 12
-        let backingY = max(0, superview.bounds.maxY - backingHeight - 16)
-        backing.frame = NSRect(x: 0, y: backingY, width: backingWidth, height: backingHeight)
+        removeTrafficLightBacking(from: superview)
 
         let left: CGFloat = 14
         let spacing: CGFloat = 20
@@ -165,20 +160,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    private func trafficLightBacking(in superview: NSView, below button: NSView) -> NSView {
-        if let existing = superview.subviews.first(where: { $0.identifier == trafficLightBackingIdentifier }) {
-            superview.addSubview(existing, positioned: .below, relativeTo: button)
-            return existing
-        }
-
-        let backing = NSView()
-        backing.identifier = trafficLightBackingIdentifier
-        backing.wantsLayer = true
-        backing.layer?.backgroundColor = VibeTheme.sidebar.cgColor
-        backing.layer?.cornerRadius = 0
-        backing.layer?.maskedCorners = [.layerMaxXMinYCorner]
-        backing.layer?.masksToBounds = true
-        superview.addSubview(backing, positioned: .below, relativeTo: button)
-        return backing
+    private func removeTrafficLightBacking(from superview: NSView) {
+        superview.subviews
+            .filter { $0.identifier?.rawValue == "VibeTrafficLightBacking" }
+            .forEach { $0.removeFromSuperview() }
     }
 }

@@ -41,7 +41,7 @@ enum InspectorTab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-struct ChatMessage: Identifiable {
+struct ChatMessage: Identifiable, Equatable {
     let id: String
     var role: MessageRole
     var title: String
@@ -606,12 +606,20 @@ final class AppModel: ObservableObject {
     func approvePendingPermission(optionID: String) {
         guard let pendingPermission else { return }
         appendLog("Permission response: \(optionID)", level: optionID.contains("reject") ? .warning : .success)
+        activityText = optionID.contains("reject") ? "Permission rejected" : "Permission approved"
         client?.respondPermission(id: pendingPermission.id, optionID: optionID)
         self.pendingPermission = nil
     }
 
     func setConfigOption(_ optionID: String, value: String) {
-        client?.setConfigOption(optionID, value: value)
+        switch optionID {
+        case "mode":
+            client?.setSessionMode(value)
+        case "model":
+            client?.setSessionModel(value)
+        default:
+            client?.setConfigOption(optionID, value: value)
+        }
         if let index = configOptions.firstIndex(where: { $0.id == optionID }) {
             configOptions[index].currentValue = value
         }
@@ -760,6 +768,12 @@ final class AppModel: ObservableObject {
             updateConfigOptions(from: update["config_options"] as? [[String: Any]]
                 ?? update["configOptions"] as? [[String: Any]]
                 ?? [])
+        case "current_mode_update":
+            let modeID = update["current_mode_id"] as? String
+                ?? update["currentModeId"] as? String
+            if let modeID {
+                updateConfigOption(id: "mode", value: modeID)
+            }
         default:
             appendLog(updateType, level: .info)
         }
@@ -1289,6 +1303,11 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func updateConfigOption(id: String, value: String) {
+        guard let index = configOptions.firstIndex(where: { $0.id == id }) else { return }
+        configOptions[index].currentValue = value
+    }
+
     private func updateChatSessions(from result: [String: Any]) {
         let rawSessions = result["sessions"] as? [[String: Any]] ?? []
         chatSessions = rawSessions.compactMap { raw in
@@ -1450,20 +1469,34 @@ final class AppModel: ObservableObject {
             }
         }
 
-        let pattern = #"([A-Za-z0-9_\-./~ ]+\.(?:html|css|js|ts|tsx|jsx|py|swift|md|txt|json|toml|yaml|yml|rs|go|java|kt|c|h|cpp|hpp|sh|zsh))"#
+        let pattern = #"((?:/|~/|\./|\.\./)[A-Za-z0-9_\-./~ ]+\.(?:html|css|js|ts|tsx|jsx|py|swift|md|txt|json|toml|yaml|yml|rs|go|java|kt|c|h|cpp|hpp|sh|zsh))"#
         if let regex = try? NSRegularExpression(pattern: pattern) {
             let range = NSRange(raw.startIndex..<raw.endIndex, in: raw)
             regex.matches(in: raw, range: range).forEach { match in
                 guard let range = Range(match.range(at: 1), in: raw) else { return }
-                paths.append(String(raw[range]).trimmingCharacters(in: .whitespacesAndNewlines))
+                paths.append(Self.cleanedPath(String(raw[range])))
             }
         }
 
         var unique: [String] = []
-        for path in paths where !unique.contains(path) {
+        for path in paths.map(Self.cleanedPath) where Self.isPlausiblePath(path) && !unique.contains(path) {
             unique.append(path)
         }
         return unique
+    }
+
+    private static func cleanedPath(_ raw: String) -> String {
+        raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'`,.;:)("))
+    }
+
+    private static func isPlausiblePath(_ path: String) -> Bool {
+        guard !path.isEmpty else { return false }
+        return path.hasPrefix("/")
+            || path.hasPrefix("~/")
+            || path.hasPrefix("./")
+            || path.hasPrefix("../")
     }
 
     private static func readEmbeddableText(from url: URL, size: Int64, mimeType: String) -> String? {
